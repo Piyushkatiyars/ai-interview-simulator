@@ -1,0 +1,70 @@
+# AI Interview Simulator - Production Docker Compose (AWS RDS)
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: interview_simulator_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      # AWS RDS MySQL Connection
+      - DB_HOST=${AWS_RDS_HOST}
+      - DB_PORT=${AWS_RDS_PORT:-3306}
+      - DB_USER=${AWS_RDS_USER}
+      - DB_PASSWORD=${AWS_RDS_PASSWORD}
+      - DB_NAME=${AWS_RDS_DATABASE}
+      # Security
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # CORS Origins for production
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://yourdomain.com}
+      - DEBUG=false
+    networks:
+      - interview_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nginx Reverse Proxy with SSL
+  nginx:
+    image: nginx:alpine
+    container_name: interview_simulator_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./nginx/certbot:/var/www/certbot
+    depends_on:
+      - backend
+    networks:
+      - interview_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Certbot for SSL certificates
+  certbot:
+    image: certbot/certbot
+    container_name: interview_simulator_certbot
+    volumes:
+      - ./nginx/ssl:/etc/letsencrypt
+      - ./nginx/certbot:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - interview_network
+
+networks:
+  interview_network:
+    driver: bridge
